@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Hidden stack: official OCI Cloud MCP (HTTP) + Cloudflare quick tunnel.
 # Prints GROK_CONNECTOR_URL = https://<trycloudflare-host>/mcp
+# Run as your login user. Never sudo.
 set -euo pipefail
 
 if [[ "$(id -u)" -eq 0 ]]; then
-  echo "Do not use sudo. Run as your login user."
+  echo "Do not use sudo. Run as your login user so PIDs/logs land in ~/.grok/oci-stack"
   exit 1
 fi
 
@@ -34,6 +35,11 @@ stop_old() {
       rm -f "$f"
     fi
   done
+  for p in $(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true); do
+    if [[ "$(ps -o user= -p "$p" 2>/dev/null | awk '{print $1}')" == "$(id -un)" ]]; then
+      kill "$p" 2>/dev/null || true
+    fi
+  done
 }
 
 extract_host() {
@@ -58,7 +64,6 @@ export ORACLE_MCP_HOST="$LISTEN"
 export ORACLE_MCP_PORT="$PORT"
 export OCI_CONFIG_PROFILE="${OCI_CONFIG_PROFILE:-DEFAULT}"
 export FASTMCP_LOG_LEVEL="${FASTMCP_LOG_LEVEL:-INFO}"
-# Placeholder until tunnel hostname exists; IDCS callback (if used) must match final host.
 export ORACLE_MCP_BASE_URL="${ORACLE_MCP_BASE_URL:-http://${LISTEN}:${PORT}}"
 
 nohup env ORACLE_MCP_HOST="$LISTEN" ORACLE_MCP_PORT="$PORT" \
@@ -104,6 +109,7 @@ URL="${HOST}/mcp"
 printf '%s\n' "$URL" > "$URL_FILE"
 printf 'GROK_CONNECTOR_URL=%s\n' "$URL"
 echo "$URL" | pbcopy 2>/dev/null || true
-echo "Stop: bash installers/stop-oci-grok-stack.sh"
+echo "Stop: stop-oci-grok-stack"
 echo "PIDs: mcp=$(cat "$PID_MCP") cloudflared=$(cat "$PID_CF")"
 echo "Logs: $MCP_LOG  $LOG"
+echo "User: $(id -un)  state: $STATE"
