@@ -1,47 +1,87 @@
-# grok-oci-connector
+# Grok OCI MCP Connector
 
-Same stack as [grok-fusion-connector](https://github.com/MJVasya/grok-fusion-connector): local MCP + Cloudflare quick tunnel → Grok Custom connector.
+Talks to Oracle’s official OCI Cloud MCP (`oracle.oci-cloud-mcp-server`) over **Streamable HTTP**, then exposes it to Grok with a Cloudflare quick tunnel.
 
-Origin is Oracle's official `oracle.oci-cloud-mcp-server` (HTTP / Streamable HTTP). No Fusion-style Python bridge required — that server already speaks HTTP when `ORACLE_MCP_HOST` + `ORACLE_MCP_PORT` are set.
+Official refs:
+
+- [oracle/mcp](https://github.com/oracle/mcp) — `src/oci-cloud-mcp-server`
+- [Grok custom MCP tunneling](https://x.ai/docs/grok/connectors/custom-mcp-tunneling) (Cloudflare quick tunnel + Streamable HTTP)
+- Tools: [docs/TOOLS.md](docs/TOOLS.md) · protocol: [docs/OFFICIAL-MCP.md](docs/OFFICIAL-MCP.md)
+
+No Fusion-style Python bridge. HTTP is enabled by `ORACLE_MCP_HOST` + `ORACLE_MCP_PORT`. Default origin: `http://127.0.0.1:8888/mcp`.
 
 ```
 Grok ──► https://<id>.trycloudflare.com/mcp ──► cloudflared ──► 127.0.0.1:8888
 ```
 
-Cloudflare **quick** tunnels work with Streamable HTTP. They do **not** support SSE. This server is Streamable HTTP. Hostname changes every start.
+Full install / update / remove / kill-PID: [docs/INSTALL.md](docs/INSTALL.md).
 
-## Prereqs (Mac)
+## Official tools (live server)
 
-- `cloudflared` — `brew install cloudflare/cloudflare/cloudflared`
-- `uv` — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- OCI CLI config at `~/.oci/config` (`oci session authenticate` or API key)
-- Do **not** use sudo
+| Tool | Use |
+|---|---|
+| `list_oci_clients` | SDK client classes in the installed `oci` package |
+| `find_oci_api` | short keyword search → `client_fqn` + `operation` |
+| `list_client_operations` | operations on one client class |
+| `describe_oci_operation` | required/optional kwargs before a call |
+| `invoke_oci_api` | run `client_fqn` + `operation` + `params` |
 
-## Daily
+Transport: Streamable HTTP. Connector URL **must** end in `/mcp`.
+
+`stdio` (bare `uvx oracle.oci-cloud-mcp-server`) is local-only. Grok cannot use it.
+
+## New install
+
+OCI CLI profile working (`~/.oci/config`). Never sudo.
 
 ```bash
-bash installers/start-oci-grok-stack.sh
-# prints + copies:
-# GROK_CONNECTOR_URL=https://xxxx.trycloudflare.com/mcp
-
-# grok.com → Connectors → Custom → paste URL
-
-bash installers/stop-oci-grok-stack.sh
+git clone https://github.com/MJVasya/grok-oci-connector.git
+cd grok-oci-connector
+bash installers/install-grok-oci.sh
 ```
 
-Keep **both** processes alive while chatting.
+Installs `start-oci-grok-stack` / `stop-oci-grok-stack` into `~/.local/bin` (your user, not root).
 
-## Auth notes
+## After install (daily)
 
-- **stdio** uses `~/.oci/config`. Grok cannot use stdio.
-- This stack forces **HTTP**. Outbound OCI calls still use your local OCI profile (`OCI_CONFIG_PROFILE`, default `DEFAULT`).
-- Official HTTP mode *can* also require IAM/IDCS (`IDCS_DOMAIN`, `IDCS_CLIENT_ID`, …). If the process exits asking for those, put them in `~/.grok/oci-stack/env` (see `env.example`).
-- Quick tunnel is public. Use a least-privilege IAM user. Named Cloudflare Tunnel + Access later if you want a stable host.
+Do **not** rerun `install-grok-oci.sh`. Each session:
 
-## Files
+1. Valid OCI session/API key (`oci iam region-subscription list`).
+2. `start-oci-grok-stack` (no sudo) — prints `GROK_CONNECTOR_URL`.
+3. grok.com Custom connector: paste that URL (quick-tunnel host changes every start).
+4. Done: `stop-oci-grok-stack`.
 
-| Path | Role |
-|---|---|
-| `installers/start-oci-grok-stack.sh` | uvx HTTP MCP + cloudflared; print URL |
-| `installers/stop-oci-grok-stack.sh` | kill PIDs |
-| `env.example` | optional IDCS / region overrides |
+## Run (prints Grok URL + PIDs)
+
+```bash
+start-oci-grok-stack
+# or from a clone:
+bash installers/start-oci-grok-stack.sh
+```
+
+## Kill PIDs
+
+```bash
+stop-oci-grok-stack
+# or:
+kill "$(cat ~/.grok/oci-stack/mcp.pid)"
+kill "$(cat ~/.grok/oci-stack/cloudflared.pid)"
+```
+
+## Update
+
+```bash
+stop-oci-grok-stack
+cd grok-oci-connector && git pull
+bash installers/install-grok-oci.sh
+```
+
+## Remove
+
+```bash
+stop-oci-grok-stack
+rm -f ~/.local/bin/start-oci-grok-stack ~/.local/bin/stop-oci-grok-stack ~/.local/bin/install-grok-oci.sh
+rm -rf ~/.grok/oci-stack ~/.grok/mcp/oci
+```
+
+Tunnel **`:8888`** (HTTP MCP), not a stdio process. Connector URL must end in `/mcp`.
